@@ -43,10 +43,10 @@ def paired_stats(deltas_by_clip, clusters, n_boot=10000, seed=5):
     obs = float(np.mean([d for _, d in items]))
     means = []
     for _ in range(n_boot):
-        cs = rng.choice(cl_keys, size=len(cl_keys), replace=True)
+        pick = rng.integers(0, len(cl_keys), size=len(cl_keys))
         pool = []
-        for c in cs:
-            arr = by_cl[c]
+        for j in pick:
+            arr = by_cl[cl_keys[j]]
             pool.extend(rng.choice(arr, size=len(arr), replace=True))
         means.append(np.mean(pool))
     lo, hi = np.percentile(means, [2.5, 97.5])
