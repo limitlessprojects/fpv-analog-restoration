@@ -9,7 +9,9 @@ DEFAULTS = dict(
     rad1=2, h1_base=6.0, h1_scale=0.6,
     rad2=3, h2_base=5.0, h2_scale=0.35,
     mask_abs=38.0, mask_sig=4.2, mask_row_k=3.0, mask_row_floor=12.0,
+    mask_res=0.0,                # blend frame-sigma -> residual-MAD-sigma for mask thr (0=off)
     mask_row_grow=0, mask_dilate_right=9, mask_dilate_left=5,
+    fill_q=0,                    # fill median only from the N best-sync-quality neighbours (0=off)
     chroma_base=0.5, chroma_scale=0.035, chroma_min=0.8, chroma_max=3.0,
     polish_ky=4.0, polish_kc=4.0, polish_ymax=32.0, polish_cmax=32.0,
     polish_multi=False,          # windowed (3-frame) joint NLM at polish stage
@@ -66,16 +68,19 @@ def _align(y, s_row, roll):
     return cv2.remap(y, mapx, mapy, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 def sync_recover(frames_ycc, log=None):
-    """lock vertical sync (unroll), re-time every line from the pilot, flag lost frames"""
-    n = len(frames_ycc); out = []; valid = []; rolls = []
+    """lock vertical sync (unroll), re-time every line from the pilot, flag lost frames.
+    Also returns per-frame quality (median pilot-fit RMS; inf for unlocked frames)."""
+    n = len(frames_ycc); out = []; valid = []; rolls = []; quals = []
     for t, y in enumerate(frames_ycc):
         s_row, rms = pilot_fit(y[:, :, 0])
-        locked = bool(np.median(rms) < 30 and noise_sigma(y[:, :, :1]) < 28)
+        med_rms = float(np.median(rms))
+        locked = bool(med_rms < 30 and noise_sigma(y[:, :, :1]) < 28)
         roll = 0
         if locked: roll, _ = find_roll(y)
         out.append(_align(y, s_row, roll) if locked else y); valid.append(locked); rolls.append(roll)
+        quals.append(med_rms if locked else 1e9)
     if log is not None: log.extend((t, valid[t], rolls[t], 0.0) for t in range(n))
-    return out, valid
+    return out, valid, quals
 
 # ---------------------------------------------------------------- motion-compensated stacking
 def guide_of(y, blur=1.3):
@@ -107,6 +112,11 @@ def noise_sigma(y):
 
 def impulse_mask(y, ref_y, sig, cfg):
     R = np.abs(y[:, :, 0] - ref_y[:, :, 0])
+    if cfg["mask_res"] > 0:
+        # residual-MAD sigma adapts to what the fill actually leaves behind (fades),
+        # frame sigma alone overshoots there (4.2*28 ~ 118 misses dim band pixels)
+        rsig = 1.4826 * float(np.median(R[:, BL:]))
+        sig = (1 - cfg["mask_res"]) * sig + cfg["mask_res"] * rsig
     thr = max(cfg["mask_abs"], cfg["mask_sig"] * sig)
     m = (R > thr).astype(np.uint8); m[:, :BL] = 0
     E = np.minimum(R, 120)[:, BL:].mean(1)
@@ -133,7 +143,7 @@ def interpolate_lost(t, frames, valid, guides):
     A = warp(frames[p], -a * f); B = warp(frames[n], (1 - a) * f)
     return (1 - a) * A + a * B
 
-def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scale, cfg, tag=""):
+def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scale, cfg, tag="", quality=None):
     n = len(frames); cache = {}; out = []; sigs = []; masks = []
     fd = cfg["flow_damp"]; fmax = cfg["fill_mag"]
     for t in range(n):
@@ -159,6 +169,11 @@ def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scal
                 fill_src = sel if sel else ws[:1]
             else:
                 fill_src = ws
+            if cfg["fill_q"] > 0 and quality is not None:
+                # neighbours carry their own damage: fill only from the N best-quality
+                # (lowest pilot-fit RMS) warped neighbours
+                cand = sorted(zip(ds, ws), key=lambda x: quality[t + x[0]])
+                fill_src = [w for _, w in cand[:int(cfg["fill_q"])]]
             fill = np.median(np.stack(fill_src), 0)
             y = np.where(m3, fill, y)
         if cfg["vfill_frac"] > 0:
@@ -359,20 +374,20 @@ def restore_core(degraded_rgb, log=None, cfg=None):
     log = {} if log is None else log
     frames = [to_ycc(f) for f in degraded_rgb]
     if cfg["sync"]:
-        sl = []; frames, valid = sync_recover(frames, sl); log["sync"] = sl
+        sl = []; frames, valid, quals = sync_recover(frames, sl); log["sync"] = sl
     else:
-        valid = [True] * len(frames)
+        valid = [True] * len(frames); quals = None
     if cfg["ghost_smooth"]:
         log["ghost_seg"] = sorted(ghost_segment(frames, valid))
     guides = [guide_of(f) for f in frames]
-    p1, sigs, masks = conceal_and_denoise(frames, valid, guides, None, cfg["rad1"], cfg["h1_base"], cfg["h1_scale"], cfg)
+    p1, sigs, masks = conceal_and_denoise(frames, valid, guides, None, cfg["rad1"], cfg["h1_base"], cfg["h1_scale"], cfg, quality=quals)
     log["sigma"] = sigs; log["maskfrac"] = [None if m is None else float(m.mean()) for m in masks]
     cur = p1
     if cfg["pass2"]:
         filled = [np.where(m[:, :, None], p1[t], frames[t]) if (valid[t] and m is not None) else frames[t]
                   for t, m in enumerate(masks)]
         g2 = [guide_of(f, 0.8) for f in p1]
-        cur, sigs, _ = conceal_and_denoise(filled, valid, g2, p1, cfg["rad2"], cfg["h2_base"], cfg["h2_scale"], cfg)
+        cur, sigs, _ = conceal_and_denoise(filled, valid, g2, p1, cfg["rad2"], cfg["h2_base"], cfg["h2_scale"], cfg, quality=quals)
     return cur, sigs, valid
 
 def restore(degraded_rgb, log=None, cfg=None):
