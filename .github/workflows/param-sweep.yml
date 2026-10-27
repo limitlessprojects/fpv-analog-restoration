@@ -1,0 +1,73 @@
+name: param-sweep
+
+# Cheap parallel screening of config variants on the tuning coordinates.
+# Input: JSON array of {"name": ..., "delta": {...}} objects.
+# The VLM blind judge does NOT run here (judge stays local); survivors of this
+# screen get promoted to local loop rounds manually.
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: 'JSON array: [{"name":"efs_w_020","delta":{"efs_w":0.2}}]'
+        required: true
+        default: '[{"name":"efs_w_020","delta":{"efs_w":0.2}}]'
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps
+        run: pip install numpy opencv-python-headless scipy scikit-image imageio imageio-ffmpeg
+      - name: Reference (champion) on tune coordinates
+        run: |
+          mkdir -p out
+          python3 code/eval_one.py out/ref.json --start 150 --seed 11 \
+            --champion results/champion.json --label ref
+      - name: Variants
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          variants = json.loads(r"""${{ github.event.inputs.variants }}""")
+          for v in variants:
+              name = v["name"]
+              delta = json.dumps(v["delta"])
+              print(f"--- {name}: {delta}", flush=True)
+              r = subprocess.run([sys.executable, "code/eval_one.py", f"out/{name}.json",
+                                  "--start", "150", "--seed", "11",
+                                  "--champion", "results/champion.json",
+                                  "--delta", delta, "--label", name])
+              if r.returncode != 0:
+                  print(f"!!! variant {name} failed", flush=True)
+          PY
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, glob, os
+          rows = []
+          for f in sorted(glob.glob("out/*.json")):
+              d = json.load(open(f))
+              rows.append((d["label"], d["p"], d["f"]))
+          rows.sort(key=lambda r: -r[1]["all"])
+          ref = next((r for r in rows if r[0] == "ref"), None)
+          lines = ["| label | PSNR all | dPSNR vs ref | good | fades | roll | lost | flick-static-good | flick-tdiff-good |",
+                   "|---|---|---|---|---|---|---|---|---|"]
+          for lab, p, f in rows:
+              d = f"{p['all'] - ref[1]['all']:+.3f}" if ref and lab != "ref" else "-"
+              lines.append(f"| {lab} | {p['all']:.3f} | {d} | {p['good']:.2f} | {p['fades']:.2f} | "
+                           f"{p['roll']:.2f} | {p['lost']:.2f} | {f['flick_static_good']:.3f} | {f['flick_tdiff_good']:.3f} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sweep-results
+          path: out/*.json

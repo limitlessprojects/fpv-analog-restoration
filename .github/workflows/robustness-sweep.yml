@@ -1,0 +1,44 @@
+name: robustness-sweep
+
+# Generalization screen: champion config on NEW scenes (start) x NEW noise (seed).
+# Never touches the held-out test clip (start=60). Results land as artifacts.
+on:
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { start: 150, seed: 11 }   # tune reference coordinates
+          - { start: 150, seed: 29 }
+          - { start: 130, seed: 23 }
+          - { start: 130, seed: 41 }
+          - { start: 170, seed: 23 }
+          - { start: 170, seed: 37 }
+          - { start: 190, seed: 29 }
+          - { start: 190, seed: 43 }
+          - { start: 210, seed: 31 }
+          - { start: 210, seed: 47 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps
+        run: pip install numpy opencv-python-headless scipy scikit-image imageio imageio-ffmpeg
+      - name: Evaluate champion on start=${{ matrix.start }} seed=${{ matrix.seed }}
+        run: |
+          mkdir -p out
+          python3 code/eval_one.py out/s${{ matrix.start }}k${{ matrix.seed }}.json \
+            --start ${{ matrix.start }} --seed ${{ matrix.seed }} \
+            --champion results/champion.json \
+            --label s${{ matrix.start }}k${{ matrix.seed }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-s${{ matrix.start }}k${{ matrix.seed }}
+          path: out/*.json

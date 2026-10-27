@@ -1,0 +1,9 @@
+*.npy
+*.pkl
+crops/
+results/variants/
+__pycache__/
+*.pyc
+build_data.log
+/tmp/
+out/
