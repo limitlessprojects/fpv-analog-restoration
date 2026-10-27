@@ -28,6 +28,21 @@ DEFAULTS = dict(
     fill_mag=0.0,                # fill-median only from neighbours with mean flow <= this (0=off)
     vfill_frac=0.0,              # rows with mask fraction above this get vertical inpaint fill (0=off)
     sharpen=0.0,                 # unsharp amount on final luma
+    fz=0,                        # Prompt 4: z^2 fusion weighting (noise vs flow-error separation)
+    fz_guide=1,                  #   weight guide = median(current, warped neighbours) (time-stable)
+    fz_z2=1,                     #   z^2 weighting: noise vs |grad|*flow-error separation + occ cap
+    fz_occ=1.0,                  #   FB flow disagreement (px) counted as occlusion
+    fz_occ_max=0.3,              #   weight cap on occluded pixels (melting safety)
+    fz_smooth=2.0,               #   Gaussian sigma smoothing the FB disagreement field
+    stab=0.0,                    # Prompt 5A: band-split temporal stabilizer strength (0=off)
+    stab_sigma=4.0,              #   low-band Gaussian sigma (~16px scale: 93% of residual lives here)
+    stab_tile=32,                #   tile size for the persistence gate (px)
+    stab_rad=4,                  #   temporal window (frames each side)
+    stab_max=8.0,                #   max applied offset (gray levels)
+    stab_flow=1.5,               #   median flow magnitude (px) below which a pixel is trusted
+    stab_dev=1.0,                #   deviation (gray) below which no correction is applied
+    stab_persist=4,              #   frames of same-sign deviation before it passes as content
+    stab_ts=2,                   #   temporal smoothing (frames, sigma) of the offset trajectory
 )
 
 # ---------------------------------------------------------------- sync / timing recovery
@@ -95,6 +110,24 @@ _gx, _gy = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.flo
 def warp(img, fl):
     return cv2.remap(img, _gx + fl[..., 0], _gy + fl[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
+def fb_delta(guides, t, n, cache, fbd, smooth):
+    """Prompt 4: forward-backward flow disagreement for pair (t,n), in px.
+    delta(p) = |f_tn(p) + f_nt(p + f_tn(p))|: ~0 when the two directions agree, large at
+    occlusions and flow failures. Guide diffs there mean 'wrong content', not noise, so
+    the fusion weight must not read them as texture. Both directions cached per pair."""
+    key = (t, n) if t < n else (n, t)
+    d = fbd.get(key)
+    if d is not None: return d
+    fa = cache.get((t, n))
+    if fa is None: fa = flow(guides[t], guides[n]); cache[(t, n)] = fa
+    fb = cache.get((n, t))
+    if fb is None: fb = flow(guides[n], guides[t]); cache[(n, t)] = fb
+    back = warp(fb, fa)
+    delta = np.hypot(fa[..., 0] + back[..., 0], fa[..., 1] + back[..., 1])
+    if smooth > 0: delta = cv2.GaussianBlur(delta, (0, 0), smooth)
+    fbd[key] = delta
+    return delta
+
 def build_stack(t, frames, valid, guides, rad, cache):
     ws, ds = [], []
     for d in range(-rad, rad + 1):
@@ -148,6 +181,7 @@ def interpolate_lost(t, frames, valid, guides):
 def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scale, cfg, tag="", quality=None):
     n = len(frames); cache = {}; out = []; sigs = []; masks = []
     fd = cfg["flow_damp"]; fmax = cfg["fill_mag"]
+    fz = int(cfg["fz"]); fbd = {}
     for t in range(n):
         if not valid[t]:
             f = interpolate_lost(t, frames, valid, guides)
@@ -194,12 +228,35 @@ def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scal
         sig2 = noise_sigma(y) if m.mean() < 0.4 else sig
         h = h_base + h_scale * sig2
         Gt = guides[t].astype(np.float32)
+        if fz and cfg["fz_guide"] and ws:
+            # Prompt 4a: weight guide from the FUSED data (mask-filled current + raw warped
+            # neighbours), not the single noisy frame: the old guide re-noises every frame,
+            # so guide noise lands at a new position each frame and the fusion tracks it.
+            Gt = guide_of(np.median(np.stack([y] + ws), 0))
         acc = y.copy(); wsum = np.ones((H, W, 1), np.float32)
+        if fz and cfg["fz_z2"]:
+            gr_x = cv2.Sobel(Gt, cv2.CV_32F, 1, 0, ksize=3)
+            gr_y = cv2.Sobel(Gt, cv2.CV_32F, 0, 1, ksize=3)
+            grad = cv2.magnitude(gr_x, gr_y)
+            occ_cap = float(cfg["fz_occ_max"]) if cfg["fz_occ_max"] < 1.0 else 1.0
         for w, d in zip(ws, ds):
             nb = t + d
             Gn = warp(guides[nb].astype(np.float32), cache[(t, nb)])
             diff = np.abs(Gt - Gn)
-            wt = np.exp(-(diff ** 2) / (2 * h ** 2))[:, :, None] * (0.85 ** (abs(d) - 1))
+            if fz and cfg["fz_z2"]:
+                # Prompt 4b: separate the two error sources inside the guide diff.
+                # SCREENING VERDICT (tune clip): this term LOSES -0.68 corr with texture;
+                # on our data a guide diff on textured pixels IS mostly content mismatch
+                # (Farneback error samples wrong texels), so tolerance there = melting.
+                # Kept behind fz_z2 for the record; default runs use 4a only.
+                delta = fb_delta(guides, t, nb, cache, fbd, cfg["fz_smooth"])
+                eff2 = h * h + (grad * delta) ** 2
+                wt = np.exp(-(diff ** 2) / (2 * eff2))
+                if cfg["fz_occ_max"] < 1.0:
+                    wt = np.minimum(wt, np.where(delta > cfg["fz_occ"], occ_cap, 1.0))
+            else:
+                wt = np.exp(-(diff ** 2) / (2 * h ** 2))
+            wt = wt[:, :, None] * (0.85 ** (abs(d) - 1))
             if fd > 0:
                 mag2 = cache[(t, nb)][..., 0] ** 2 + cache[(t, nb)][..., 1] ** 2
                 wt = wt * np.exp(-mag2 / (2 * fd * fd))[:, :, None]
@@ -294,6 +351,90 @@ def event_flicker_smooth(out_rgb, valid, cfg):
         out[t] = (1 - w) * b + w * a
         out[t - 1] = (1 - w) * a + w * b
     return [np.clip(f, 0, 255).astype(np.uint8) for f in out]
+
+# ---------------------------------------------------------------- band-split temporal stabilizer
+def stabilizer_stage(frames, valid, cfg):
+    """Prompt 5A: band-split temporal stabilizer. The flicker breakdown put ~92% of the
+    residual variance in the low-spatial band as slow drift (41% <1 Hz + 51% 1-5 Hz),
+    concentrated +-3 frames around impairment on/off events. Fix: measure the luma offset
+    against a flow-aligned temporal median of the low band, clean it spatially, gate it by
+    flow trust (real motion must pass untouched) and a per-tile persistence test (a
+    same-sign deviation lasting >= stab_persist frames is content, not drift), then
+    subtract from the full-res luma. Chroma untouched: the residual budget is luma drift."""
+    sig = float(cfg["stab_sigma"]); rad = int(cfg["stab_rad"])
+    mx = float(cfg["stab_max"]); flow_thr = float(cfg["stab_flow"])
+    dev_min = float(cfg["stab_dev"]); persist = int(cfg["stab_persist"])
+    ts = float(cfg.get("stab_ts", 2.0)); tile = int(cfg["stab_tile"])
+    n = len(frames)
+    sh, sw = H // 2, W // 2
+    lows = [cv2.resize(cv2.GaussianBlur(f[:, :, 0], (0, 0), sig), (sw, sh),
+                       interpolation=cv2.INTER_AREA) for f in frames]
+    gxs, gys = np.meshgrid(np.arange(sw, dtype=np.float32), np.arange(sh, dtype=np.float32))
+    flcache = {}
+    def getf(t, d):
+        key = (t, d)
+        if key not in flcache:
+            flcache[key] = cv2.calcOpticalFlowFarneback(
+                lows[t], lows[t + d], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+        return flcache[key]
+    nt_y, nt_x = -(-sh // tile), -(-sw // tile)
+    run = np.zeros((nt_y, nt_x), np.int32); last_sign = np.zeros((nt_y, nt_x), np.int8)
+    raw = [None] * n          # pass 1: gated per-frame offset fields
+    for t in range(n):
+        y = frames[t]
+        if not valid[t]:
+            run[:] = 0; last_sign[:] = 0
+            continue
+        refs, mags = [], []
+        for d in range(-rad, rad + 1):
+            q = t + d
+            if d == 0 or q < 0 or q >= n or not valid[q]: continue
+            f = getf(t, d)
+            refs.append(cv2.remap(lows[q], gxs + f[..., 0], gys + f[..., 1],
+                                  cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE))
+            mags.append(np.hypot(f[..., 0], f[..., 1]))
+        if not refs:
+            continue
+        L = np.median(np.stack(refs), 0)
+        dev = cv2.GaussianBlur(cv2.medianBlur((lows[t] - L).astype(np.float32), 5), (0, 0), sig / 2)
+        trust = np.median(np.stack(mags), 0) < flow_thr
+        # per-tile persistence: same-sign significant deviation that has already lasted
+        # >= persist frames is content (flow failure, real shading change), not drift
+        pad = np.full((nt_y * tile, nt_x * tile), np.nan, np.float32)
+        pad[:sh, :sw] = dev
+        tb = np.nanmedian(pad.reshape(nt_y, tile, nt_x, tile), axis=(1, 3))
+        sig_t = np.abs(tb) >= dev_min
+        sn = np.sign(tb).astype(np.int8)
+        run = np.where((sn == last_sign) & sig_t, run + 1,
+                       np.where(sig_t, 1, 0)).astype(np.int32)
+        last_sign = np.where(sig_t, sn, 0)
+        gate_t = ~((run >= persist) & sig_t)
+        gate = np.kron(gate_t, np.ones((tile, tile), np.float32))[:sh, :sw] * trust
+        raw[t] = np.clip(dev * gate, -mx, mx).astype(np.float32)
+    # pass 2: smooth the offset TRAJECTORY in time (DIAGNOSIS: the raw field wobbles
+    # 0.81 gray/frame on calm static pairs and ADDS flicker; the drift it corrects moves
+    # at 1-5 Hz, so a ~2-frame smooth kills the wobble and keeps the correction)
+    if ts > 0:
+        radius = max(1, int(round(3 * ts)))
+        kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / ts) ** 2)
+        kernel /= kernel.sum()
+        for t in range(n):
+            if raw[t] is None: continue
+            acc = np.zeros_like(raw[t]); wsum = np.zeros((sh, sw), np.float32)
+            for j, w in zip(range(-radius, radius + 1), kernel):
+                u = t + j
+                if u < 0 or u >= n or raw[u] is None: continue
+                acc += w * raw[u]; wsum += w
+            raw[t] = acc / np.maximum(wsum, 1e-6)
+    out = []
+    for t in range(n):
+        y = frames[t]
+        if raw[t] is None:
+            out.append(y); continue
+        b = cv2.resize(raw[t], (W, H), interpolation=cv2.INTER_LINEAR)
+        y = y.copy(); y[:, :, 0] -= b
+        out.append(y)
+    return out
 
 # ---------------------------------------------------------------- optional post stages
 def temporal_post_stage(frames, valid, cfg):
@@ -411,6 +552,10 @@ def restore(degraded_rgb, log=None, cfg=None):
         out = np.array(ghost_boundary_smooth(list(out), set(log.get("ghost_seg", [])), cfg["gsb_fade"]))
     if cfg["efs"]:
         out = np.array(event_flicker_smooth(list(out), valid, cfg))
+    if cfg["stab"] > 0:
+        ycc = [cv2.cvtColor(f, cv2.COLOR_RGB2YCrCb).astype(np.float32) for f in out]
+        ycc = stabilizer_stage(ycc, valid, cfg)
+        out = np.array([cv2.cvtColor(np.clip(y, 0, 255).astype(np.uint8), cv2.COLOR_YCrCb2RGB) for y in ycc])
     out = sharpen_stage(out, cfg)
     out = np.asarray(out)
     cfg["runtime_s"] = round(__import__("time").time() - t_all, 1)
