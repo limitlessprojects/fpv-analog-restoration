@@ -120,7 +120,8 @@ def main():
         champ_out = np.load("champion_out.npy")
         print(f"[{name}] gates pass, score ok ({why}) -> blind judge ...", flush=True)
         v = judge(out, champ_out, CL)
-        vlm_ok = v["votes"]["cand"] >= v["votes"]["champ"]
+        # strict majority with status-quo bias: candidate must WIN the vote outright
+        vlm_ok = v["votes"]["cand"] > v["votes"]["champ"]
         if not vlm_ok:
             ledger({"event": "revert", "name": name, "cfg": cfg, "gates": gates,
                     "scores": {"p": p, "s": s, "f": f}, "judge": v["votes"],

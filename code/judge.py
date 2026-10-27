@@ -1,7 +1,9 @@
 """Blind VLM judge. Builds anonymized [reference | A | B] comparison sheets from two
 restorations of the SAME tuning clip, asks the vision model which restoration is better,
-3 independent calls (flicker@static, detail@motion, flicker@motion) with randomized
-A/B assignment, majority vote. The judge never knows which one is the champion."""
+5 independent calls (2x flicker@static, 2x detail@motion, 1x flicker@motion) with
+randomized A/B assignment per call, majority vote; ties go to the champion (status-quo
+bias: a noisy judge must EVIDENTIALLY prefer the candidate). The judge never knows
+which one is the champion."""
 import subprocess, json, re, os, random
 import numpy as np, cv2
 
@@ -72,9 +74,15 @@ def _ask(png_path, prompt, tag):
 def judge(out_cand, out_champ, clean, workdir="crops"):
     os.makedirs(workdir, exist_ok=True)
     (sy, sx), (my, mx) = pick_regions(clean)
-    trials = [("flick_static", "sheet1", PROMPT_FLICK, (sy, sx), (20, 21, 22)),
-              ("detail_motion", "sheet2", PROMPT_DETAIL, (my, mx), (18, 24)),
-              ("flick_motion", "sheet3", PROMPT_FLICK, (my, mx), (8, 9, 10))]
+    n = len(clean)
+    trials = [
+        ("flick_static_a", "sheet1", PROMPT_FLICK, (sy, sx), (20, 21, 22)),
+        ("flick_static_b", "sheet4", PROMPT_FLICK, (sy, sx), (10, 11, 12)),
+        ("detail_motion_a", "sheet2", PROMPT_DETAIL, (my, mx), (18, 24)),
+        ("detail_motion_b", "sheet5", PROMPT_DETAIL, (my, mx), (30, 38)),
+        ("flick_motion", "sheet3", PROMPT_FLICK, (my, mx), (8, 9, 10)),
+    ]
+    trials = [t for t in trials if all(u < n for u in t[4])]
     votes = {"cand": 0, "champ": 0, "tie": 0}; details = []
     for name, stem, prompt, region, ts in trials:
         cand_is_A = random.random() < 0.5

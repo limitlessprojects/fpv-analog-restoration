@@ -122,16 +122,18 @@ def impulse_mask(y, ref_y, sig, cfg):
     E = np.minimum(R, 120)[:, BL:].mean(1)
     med = np.median(E); mad = 1.4826 * np.median(np.abs(E - med)) + 1e-6
     bad = E > med + max(cfg["mask_row_k"] * mad, cfg["mask_row_floor"])
-    if cfg["mask_row_grow"] > 0 and bad.any():
-        bad = cv2.dilate(bad.astype(np.uint8), np.ones((1 + 2 * cfg["mask_row_grow"], 1), np.uint8)).astype(bool)
+    grow = int(cfg["mask_row_grow"])
+    if grow > 0 and bad.any():
+        bad = cv2.dilate(bad.astype(np.uint8), np.ones((1 + 2 * grow, 1), np.uint8)).astype(bool)
     if bad.any():
         sm = cv2.blur(np.minimum(R, 120), (9, 1))
         for r in np.where(bad)[0]:
             hit = np.where(sm[r, BL:] > med + 10)[0]
             x0 = BL + (hit[0] if len(hit) else 0)
             m[r, max(BL, x0 - 4):] = 1
-    right = cv2.dilate(m, np.ones((1, cfg["mask_dilate_right"]), np.uint8), anchor=(cfg["mask_dilate_right"] - 1, 0))
-    left = cv2.dilate(m, np.ones((1, cfg["mask_dilate_left"]), np.uint8), anchor=(cfg["mask_dilate_left"] - 1, 0))
+    dr = int(cfg["mask_dilate_right"]); dl = int(cfg["mask_dilate_left"])
+    right = cv2.dilate(m, np.ones((1, dr), np.uint8), anchor=(dr - 1, 0))
+    left = cv2.dilate(m, np.ones((1, dl), np.uint8), anchor=(dl - 1, 0))
     return np.maximum(right, left).astype(bool)
 
 def interpolate_lost(t, frames, valid, guides):
@@ -262,7 +264,7 @@ def event_flicker_smooth(out_rgb, valid, cfg):
     steps) and cross-fade both frames. Gate requires each pixel static over 3 consecutive
     pairs, so fast real motion (under-tracked by flow) cannot trigger a blend."""
     k_mad = cfg["efs_k"]; floor = cfg["efs_floor"]; w = cfg["efs_w"]; thr = cfg["tp_flow"]
-    max_pairs = cfg["efs_max"]; frac_min = cfg["efs_frac"]
+    max_pairs = int(cfg["efs_max"]); frac_min = cfg["efs_frac"]
     guides = [guide_of(cv2.cvtColor(f, cv2.COLOR_RGB2YCrCb).astype(np.float32), 0.8) for f in out_rgb]
     n = len(out_rgb)
     gate = {}
@@ -298,6 +300,7 @@ def temporal_post_stage(frames, valid, cfg):
     """flow-gated temporal median on static pixels: kills residual grain flicker where
     the scene is not moving; motion pixels are left untouched."""
     rad = cfg["tp_rad"]; thr = cfg["tp_flow"]; mixv = cfg["tp_mix"]
+    rad = int(rad)
     guides = [guide_of(f, 0.8) for f in frames]
     out = []
     for t, y in enumerate(frames):
@@ -380,14 +383,14 @@ def restore_core(degraded_rgb, log=None, cfg=None):
     if cfg["ghost_smooth"]:
         log["ghost_seg"] = sorted(ghost_segment(frames, valid))
     guides = [guide_of(f) for f in frames]
-    p1, sigs, masks = conceal_and_denoise(frames, valid, guides, None, cfg["rad1"], cfg["h1_base"], cfg["h1_scale"], cfg, quality=quals)
+    p1, sigs, masks = conceal_and_denoise(frames, valid, guides, None, int(cfg["rad1"]), cfg["h1_base"], cfg["h1_scale"], cfg, quality=quals)
     log["sigma"] = sigs; log["maskfrac"] = [None if m is None else float(m.mean()) for m in masks]
     cur = p1
     if cfg["pass2"]:
         filled = [np.where(m[:, :, None], p1[t], frames[t]) if (valid[t] and m is not None) else frames[t]
                   for t, m in enumerate(masks)]
         g2 = [guide_of(f, 0.8) for f in p1]
-        cur, sigs, _ = conceal_and_denoise(filled, valid, g2, p1, cfg["rad2"], cfg["h2_base"], cfg["h2_scale"], cfg, quality=quals)
+        cur, sigs, _ = conceal_and_denoise(filled, valid, g2, p1, int(cfg["rad2"]), cfg["h2_base"], cfg["h2_scale"], cfg, quality=quals)
     return cur, sigs, valid
 
 def restore(degraded_rgb, log=None, cfg=None):
