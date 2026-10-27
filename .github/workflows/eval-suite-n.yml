@@ -1,0 +1,56 @@
+name: eval-suite-n
+
+# Gap 3 N-expansion (session 2026-10-27): 23 windows x 3 seeds x 3 systems (naive,
+# bar sync+med3+nlm, ours champion P22), paired at (window, seed) level.
+# 12 shards run in parallel; aggregate job merges + cluster-bootstraps.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["code/run_suite.py", "code/aggregate_suite.py", ".github/workflows/eval-suite-n.yml"]
+
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install numpy opencv-python-headless scikit-image imageio imageio-ffmpeg
+      - name: Run suite shard
+        working-directory: code
+        run: python run_suite.py suite_out --shard ${{ matrix.shard }} --nshards 12
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suite-n-${{ matrix.shard }}
+          path: code/suite_out/clip_*.json
+          if-no-files-found: error
+
+  aggregate:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: suite-n-*
+          path: suite_out
+          merge-multiple: true
+      - name: Aggregate (paired deltas, cluster bootstrap, win rates)
+        run: python code/aggregate_suite.py suite_out suite_summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suite-n-summary
+          path: suite_summary.json

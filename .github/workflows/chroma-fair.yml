@@ -1,0 +1,39 @@
+name: chroma-fair
+
+# Gap 1 FAIR competitor test (session 2026-10-27): flugbild + AnaHD classic on
+# CHROMA-DOMINANT damage (their design envelope), vs naive / bar / ours.
+# Tune clip = first clip (40:7); remaining clips scored once with tuned settings.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["code/sim_chroma.py", "code/run_chroma.py", "code/metrics_chroma.py", ".github/workflows/chroma-fair.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install "numpy>=2,<3" "opencv-python-headless>=4.10,<6" scikit-image imageio imageio-ffmpeg
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Clone reference engines
+        run: |
+          git clone --depth 1 https://github.com/Bratwurstexe/FPV_DVR_CLEANER refs/fpv_dvr_cleaner
+          git clone --depth 1 https://github.com/dominic-salas/AnaHD refs/anahd
+      - name: Run chroma-fair test (8 clips, first = tune)
+        working-directory: code
+        env:
+          REFS_DIR: ${{ github.workspace }}/refs
+        run: |
+          python run_chroma.py chroma_out 40:7 40:11 100:7 100:11 190:7 190:11 280:7 280:11
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chroma-fair
+          path: code/chroma_out/chroma_final.json
+          if-no-files-found: error
