@@ -1,0 +1,45 @@
+"""Append session 2026-10-27 loop entries: detail-band temporal_post screening (4 REVERT)
++ the mechanism diagnostic. Same JSONL format as append_ledger_p45.py."""
+import json
+
+entries = [
+    dict(name="P6_tp_band_r2_f030", verdict="REVERT",
+         cfg={"temporal_post": True, "tp_band": 1, "tp_rad": 2, "tp_flow": 0.30},
+         scores={"p_all": 27.27, "flick_static_good": 7.511, "ssim": 0.817},
+         reason="detail-band temporal median: flicker unchanged (+0.03), PSNR -0.09; "
+                "mechanism in finding_tp_detail_band"),
+    dict(name="P6a_tp_band_r2_f045", verdict="REVERT",
+         cfg={"temporal_post": True, "tp_band": 1, "tp_rad": 2, "tp_flow": 0.45},
+         scores={"p_all": 27.26, "flick_static_good": 7.511, "ssim": 0.817},
+         reason="identical to f030: flow gate is not the binding constraint"),
+    dict(name="P6b_tp_band_r3_f030", verdict="REVERT",
+         cfg={"temporal_post": True, "tp_band": 1, "tp_rad": 3, "tp_flow": 0.30},
+         scores={"p_all": 27.28, "flick_static_good": 7.480, "ssim": 0.818},
+         reason="rad=3 tie on flicker, still -0.08 PSNR"),
+    dict(name="P6c_tp_full_r2_f030", verdict="REVERT",
+         cfg={"temporal_post": True, "tp_band": 0, "tp_rad": 2, "tp_flow": 0.30},
+         scores={"p_all": 27.32, "flick_static_good": 7.422, "ssim": 0.817},
+         reason="legacy full-band median: flick -0.055 but tdiff +0.04 (motion smear) and "
+                "PSNR -0.04; band restriction attribution arm"),
+    dict(name="finding_tp_detail_band", verdict="DIAGNOSTIC",
+         finding=dict(
+             question="why did the detail-band temporal median not move flick_static_good?",
+             gate_coverage_per_frame=[0.176, 0.362, 0.487],
+             residual_corr_consecutive_frames_gated_static=0.705,
+             pair_diff_variance_gated_static={"champ": 8.90, "with_T1": 8.95},
+             detail_band_part=3.86,
+             per_frame_luma_residual_var=11.22,
+             iid_median5_floor=5.10,
+             conclusion="post-polish residual on gated GT-static pixels is COMMON-MODE across "
+                        "the +-rad window (rho=0.705): the fusion stages share warped data, so "
+                        "a window median reproduces the same error as the current frame. Any "
+                        "multi-frame median/average is structurally powerless against the "
+                        "remaining flicker; only estimation-and-subtraction (stab family) or "
+                        "pair-specific blending (EFS, already ON) can touch it.",
+             flags="single tune clip; correlation is a measured distribution over 12 good pairs"))
+]
+
+with open("ledger.json", "a") as f:
+    for e in entries:
+        f.write(json.dumps(e) + "\n")
+print(f"appended {len(entries)} entries")

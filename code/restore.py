@@ -18,6 +18,16 @@ DEFAULTS = dict(
     temporal_post=False,         # flow-gated temporal median (flicker kill)
     tp_after_polish=True,        # True: apply AFTER NLM polish (NLM re-adds independent residual)
     tp_rad=2, tp_flow=0.30, tp_mix=1.0,
+    tp_band=0,                   # 0=full-band median (legacy), 1=detail-band only: median the
+                                 # high-freq component, never touch the low band (the stab
+                                 # lesson: the low band carries content; the metric-domain
+                                 # residual flicker on calm static pairs is 64% detail band)
+    tp_lowsig=8.0,               # detail-band separator Gaussian sigma (px)
+    loo=0,                       # leave-one-out fill check: refill each masked region without
+                                 # the most central neighbour; |fill - fill_loo| = how much the
+                                 # fill depends on a single observation (invention risk)
+    save_masks=0,                # put per-frame impulse masks into log["_masks"] (no-invention
+                                 # detail-retention floor needs observed-pixel locations)
     chroma_temporal=0.0,         # blend chroma toward warped-neighbour median
     lost_smooth=0.0,             # extra smoothing blend on interpolated frames
     ghost_smooth=False,          # cross-fade multipath echo on/off boundaries (flicker)
@@ -212,6 +222,18 @@ def conceal_and_denoise(frames, valid, guides, ref_for_mask, rad, h_base, h_scal
                 fill_src = [w for _, w in cand[:int(cfg["fill_q"])]]
             fill = np.median(np.stack(fill_src), 0)
             y = np.where(m3, fill, y)
+            if cfg["loo"] and cfg.get("_loo") is not None:
+                # invention-risk probe: drop the most central neighbour and refill; a fill
+                # that moves a lot when one observation is removed was mostly INVENTED from
+                # the fusion machinery, not observed
+                sel = [w for w, d in zip(ws, ds) if d != min(ds, key=abs)]
+                if sel:
+                    fill2 = np.median(np.stack(sel), 0)
+                    dful = np.abs(fill - fill2)[m]
+                    if dful.size:
+                        cfg["_loo"].append(dict(t=t, n=int(dful.size),
+                                                mean=float(dful.mean()),
+                                                p95=float(np.percentile(dful, 95))))
         if cfg["vfill_frac"] > 0:
             # VCR-style dropout compensation (AFTER the warped fill): rows the mask flagged
             # as bands get a vertical inpaint (TELEA) instead of trusting warped neighbours
@@ -442,6 +464,7 @@ def temporal_post_stage(frames, valid, cfg):
     the scene is not moving; motion pixels are left untouched."""
     rad = cfg["tp_rad"]; thr = cfg["tp_flow"]; mixv = cfg["tp_mix"]
     rad = int(rad)
+    band = int(cfg.get("tp_band", 0)); lowsig = float(cfg.get("tp_lowsig", 8.0))
     guides = [guide_of(f, 0.8) for f in frames]
     out = []
     for t, y in enumerate(frames):
@@ -457,8 +480,17 @@ def temporal_post_stage(frames, valid, cfg):
         if not ws:
             out.append(y); continue
         med = np.median(np.stack(ws + [y]), 0)
+        if band:
+            # detail-band aim: replace only the high-frequency component with the median's
+            # high-frequency component; the low band (shading, fades, exposure) passes
+            # through from the current frame untouched.
+            low_y = cv2.GaussianBlur(y, (0, 0), lowsig)
+            low_m = cv2.GaussianBlur(med, (0, 0), lowsig)
+            fused = low_y + mixv * (med - low_m) + (1 - mixv) * (y - low_y)
+        else:
+            fused = mixv * med + (1 - mixv) * y
         gate = (mag < thr)[:, :, None]
-        out.append(np.where(gate, mixv * med + (1 - mixv) * y, y))
+        out.append(np.where(gate, fused, y))
     return out
 
 def chroma_temporal_stage(frames, valid, cfg):
@@ -526,6 +558,13 @@ def restore_core(degraded_rgb, log=None, cfg=None):
     guides = [guide_of(f) for f in frames]
     p1, sigs, masks = conceal_and_denoise(frames, valid, guides, None, int(cfg["rad1"]), cfg["h1_base"], cfg["h1_scale"], cfg, quality=quals)
     log["sigma"] = sigs; log["maskfrac"] = [None if m is None else float(m.mean()) for m in masks]
+    if cfg.get("save_masks"): log["_masks"] = masks
+    if cfg.get("_loo") is not None: log["loo"] = cfg["_loo"]
+    log["provenance"] = [
+        dict(t=t, interpolated=bool(not valid[t]),
+             warped_frac=0.0 if not valid[t] else (0.0 if masks[t] is None else float(masks[t].mean())),
+             observed_frac=0.0 if not valid[t] else (1.0 if masks[t] is None else 1.0 - masks[t].mean()))
+        for t in range(len(frames))]
     cur = p1
     if cfg["pass2"]:
         filled = [np.where(m[:, :, None], p1[t], frames[t]) if (valid[t] and m is not None) else frames[t]
@@ -538,6 +577,8 @@ def restore(degraded_rgb, log=None, cfg=None):
     t_all = __import__("time").time()
     cfg = {**DEFAULTS, **(cfg or {})}
     if log is None: log = {}
+    cfg.setdefault("_loo", [] if cfg["loo"] else None)
+    cfg.setdefault("_masks", None)
     cur, sigs, valid = restore_core(degraded_rgb, log, cfg)
     if cfg["temporal_post"] and not cfg["tp_after_polish"]:
         cur = temporal_post_stage(cur, valid, cfg)
