@@ -29,7 +29,7 @@ def score_all(x):
          for g, m in groups.items()}
     return p, s, flicker_summary(x, CL, META)
 
-def run_gates(cand, champ, base_psnr, runtime, out):
+def run_gates(cand, champ, base_psnr, runtime, out, log=None):
     g = []
     def add(name, ok, why=""):
         g.append({"gate": name, "ok": bool(ok), **({"why": why} if why else {})})
@@ -49,6 +49,46 @@ def run_gates(cand, champ, base_psnr, runtime, out):
     add("G4_flicker_static", cand["f"]["flick_static_good"] <= champ["f"]["flick_static_good"] * 1.15,
         f"{cand['f']['flick_static_good']:.3f} vs champ {champ['f']['flick_static_good']:.3f}")
     add("G5_runtime", runtime <= 300, f"{runtime:.0f}s")
+    # ---- G6 no-invention (status-quo guards, thresholds from results/ni_thresholds.json,
+    # 8-window champion distribution; catches candidates that invent harder than the
+    # champion ever does, not perceptual absolutes) ----
+    thr_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results", "ni_thresholds.json")
+    if log is not None and os.path.exists(thr_p):
+        try:
+            gate = json.load(open(thr_p))["gate"]
+            prov = log.get("provenance") or []
+            if prov:
+                obs = float(np.mean([p["observed_frac"] for p in prov]))
+                interp = int(sum(1 for p in prov if p["interpolated"]))
+                add("G6_ni_observed", obs >= gate["observed_floor"],
+                    f"{obs:.3f} vs floor {gate['observed_floor']}")
+                add("G6_ni_interp", interp <= gate["interp_ceiling"],
+                    f"{interp} interp frames vs ceiling {gate['interp_ceiling']}")
+            loo = log.get("loo") or []
+            if loo:
+                p95max = float(np.max([e["p95"] for e in loo]))
+                add("G6_ni_loo", p95max <= gate["loo_p95_max_ceiling"],
+                    f"p95max {p95max:.1f} vs ceiling {gate['loo_p95_max_ceiling']}")
+            masks = log.get("_masks")
+            if masks:
+                import cv2
+                q = META["q"]; lost = np.array(META["lost"]); roll = np.array(META["roll"]) > 0
+                good = (q > 0.7) & ~lost & ~roll
+                rets = []
+                for t in range(len(out)):
+                    if masks[t] is None or not good[t]: continue
+                    ob = ~masks[t]
+                    if ob.sum() < 500: continue
+                    yo = cv2.cvtColor(out[t], cv2.COLOR_RGB2YCrCb)[:, :, 0].astype(np.float32)
+                    yc = cv2.cvtColor(CL[t], cv2.COLOR_RGB2YCrCb)[:, :, 0].astype(np.float32)
+                    ho = yo - cv2.GaussianBlur(yo, (0, 0), 2.0)
+                    hc = yc - cv2.GaussianBlur(yc, (0, 0), 2.0)
+                    rets.append(ho[ob].std() / (hc[ob].std() + 1e-6))
+                if rets:
+                    r = float(np.mean(rets)); lo, hi = gate["hf_band"]
+                    add("G6_ni_hf", lo <= r <= hi, f"{r:.3f} vs band {gate['hf_band']}")
+        except Exception as e:
+            add("G6_ni_error", False, f"gate crash: {str(e)[:80]}")
     return g
 
 def score_ok(c, h):
@@ -93,8 +133,9 @@ def main():
 
     print(f"[{name}] running pipeline ...", flush=True)
     t0 = time.time()
+    log = {}
     try:
-        out = restore(DG, cfg=cfg)
+        out = restore(DG, cfg={**cfg, "save_masks": 1}, log=log)
     except Exception as e:
         ledger({"event": "revert", "name": name, "cfg": cfg, "reason": f"crash: {e}"})
         print("CRASH -> revert:", e); traceback.print_exc(); return
@@ -107,7 +148,7 @@ def main():
     cand = dict(p=p, s=s, f=f)
 
     # ---- HARD GATES FIRST (vs champion), then score, then blind judge
-    gates = run_gates(cand, champ, base_psnr, rt, out)
+    gates = run_gates(cand, champ, base_psnr, rt, out, log=log)
     failed = [g for g in gates if not g["ok"]]
     if failed:
         ledger({"event": "revert", "name": name, "cfg": cfg, "gates": gates,

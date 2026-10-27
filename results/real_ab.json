@@ -1,0 +1,170 @@
+{
+ "what": "real-footage blind A/B: mixkit drone content, simulated analog link (seed 21), 60 frames 480x360",
+ "protocol": "5 randomized trials per A/B (2 static flicker, 2 motion detail, 1 motion flicker); ties favor the second system (status-quo bias)",
+ "ab1_bar_vs_ours": {
+  "votes": {
+   "cand": 3,
+   "champ": 2,
+   "tie": 0
+  },
+  "details": [
+   {
+    "better": "B",
+    "flicker": "A",
+    "detail": "B",
+    "reason": "B preserves texture details better than A, which is overly smoothed and flickers.",
+    "trial": "flick_static_a",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "flicker": "B",
+    "detail": "A",
+    "reason": "A preserves fine vertical lines and texture; B is overly smooth and blurry.",
+    "trial": "flick_static_b",
+    "cand_is": "B"
+   },
+   {
+    "better": "A",
+    "detail": "A",
+    "artifacts": "B",
+    "reason": "A preserves vertical texture details; B is overly blurred and loses structure.",
+    "trial": "detail_motion_a",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "detail": "A",
+    "artifacts": "A",
+    "reason": "A preserves fine vertical texture; B is overly smoothed and blurry.",
+    "trial": "detail_motion_b",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "flicker": "A",
+    "detail": "A",
+    "reason": "B is overly smoothed, losing texture; A preserves lines with less flicker.",
+    "trial": "flick_motion",
+    "cand_is": "A"
+   }
+  ]
+ },
+ "ab2_degraded_vs_ours": {
+  "votes": {
+   "cand": 2,
+   "champ": 3,
+   "tie": 0
+  },
+  "details": [
+   {
+    "better": "B",
+    "flicker": "B",
+    "detail": "A",
+    "reason": "B is much more stable, but A preserves finer texture details.",
+    "trial": "flick_static_a",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "flicker": "A",
+    "detail": "A",
+    "reason": "B is extremely noisy and flickers heavily; A preserves structure and detail much better.",
+    "trial": "flick_static_b",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "detail": "A",
+    "artifacts": "A",
+    "reason": "A preserves fine line texture; B is blurry and loses all detail.",
+    "trial": "detail_motion_a",
+    "cand_is": "A"
+   },
+   {
+    "better": "A",
+    "detail": "A",
+    "artifacts": "A",
+    "reason": "B is excessively dark and noisy, losing all texture details present in A.",
+    "trial": "detail_motion_b",
+    "cand_is": "B"
+   },
+   {
+    "better": "A",
+    "flicker": "A",
+    "detail": "B",
+    "reason": "A is more stable, but B preserves the vertical texture details better than A's blur.",
+    "trial": "flick_motion",
+    "cand_is": "B"
+   }
+  ]
+ },
+ "scores": {
+  "degraded": {
+   "p": {
+    "all": 19.137699190344712,
+    "good": 22.037711887676448,
+    "fades": 16.52407634758894,
+    "roll": 14.539551901911683,
+    "lost": 7.8527010928229455
+   },
+   "s": {
+    "all": 0.1635737553188184,
+    "good": 0.26736733186356326,
+    "fades": 0.08430969873239876,
+    "roll": 0.067108494516434,
+    "lost": 0.008259645383103335
+   },
+   "f": {
+    "flick_static_good": 24.470674514770508,
+    "flick_tdiff_good": 15.931841850280762,
+    "flick_static_all": 35.8312873840332,
+    "flick_tdiff_all": 24.403627395629883
+   }
+  },
+  "bar": {
+   "p": {
+    "all": 28.782324739177668,
+    "good": 30.13180142153302,
+    "fades": 27.878622283852398,
+    "roll": 27.769279632255632,
+    "lost": 19.59660292235902
+   },
+   "s": {
+    "all": 0.7482088666011334,
+    "good": 0.7907336192637897,
+    "fades": 0.7091067454793629,
+    "roll": 0.7136727476662124,
+    "lost": 0.47214256131044763
+   },
+   "f": {
+    "flick_static_good": 0.891261100769043,
+    "flick_tdiff_good": 0.9886994361877441,
+    "flick_static_all": 1.7925641536712646,
+    "flick_tdiff_all": 1.5601966381072998
+   }
+  },
+  "ours": {
+   "p": {
+    "all": 29.146910710367155,
+    "good": 31.352244810628466,
+    "fades": 27.348512850940796,
+    "roll": 27.52453526749681,
+    "lost": 22.271793793138528
+   },
+   "s": {
+    "all": 0.7389151909167524,
+    "good": 0.8347496561940966,
+    "fades": 0.6487305660327104,
+    "roll": 0.6471644592413572,
+    "lost": 0.6655949917546699
+   },
+   "f": {
+    "flick_static_good": 1.8118258714675903,
+    "flick_tdiff_good": 1.268919825553894,
+    "flick_static_all": 2.9265365600585938,
+    "flick_tdiff_all": 1.756094217300415
+   }
+  }
+ }
+}

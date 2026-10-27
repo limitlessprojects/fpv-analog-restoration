@@ -65,6 +65,8 @@ def score(out_npy, clean_npy, deg_npy, meta_pkl, log_pkl):
               hf_degraded_all=round(float(np.mean(hf_dg)), 3))
 
     lp = None
+    if os.environ.get("NI_SKIP_LPIPS"):
+        lp = {"lpips": "skipped", "why": "NI_SKIP_LPIPS=1 (distribution collection)"}
     try:
         import torch, lpips as _lp
         loss_fn = _lp.LPIPS(net="alex")

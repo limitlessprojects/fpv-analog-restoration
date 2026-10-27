@@ -1,0 +1,27 @@
+{
+ "provenance": {
+  "interp_frames": 2,
+  "mean_observed": 0.9315277777777778,
+  "mean_warped": 0.03513888888888889
+ },
+ "loo_fill": {
+  "frames_with_fill": 111,
+  "mean": 3.735518664927096,
+  "p95_mean": 11.590413031277356,
+  "p95_max": 39.9942626953125
+ },
+ "hf_retention": {
+  "retention_good_observed": 0.8288,
+  "n_frames": 15,
+  "hf_out_all": 9.592,
+  "hf_clean_all": 11.656,
+  "hf_degraded_all": 15.875
+ },
+ "lpips": {
+  "lpips": "unavailable",
+  "why": "No module named 'torch'"
+ },
+ "start": 0,
+ "seed": 7,
+ "runtime_s": 52.7
+}

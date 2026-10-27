@@ -1,0 +1,126 @@
+{
+ "what": "editportal.net Quality Boost, Classic mode (denoise 35, sharpen 60, contrast 6, vibrance 10, scale Original), browser-run via Playwright; AI Fast/AI Pro disabled without WebGPU (button disabled), so not scored",
+ "clip": {
+  "idx": 5,
+  "src": "cockatoo",
+  "start": 10,
+  "seed": 23,
+  "frames": 60,
+  "size": "480x360"
+ },
+ "input_sha_note": "input = suite degraded clip (sync/roll/lost/dropout damage intact; editportal has no analog-specific handling)",
+ "scores": {
+  "degraded": {
+   "p": {
+    "all": 18.08135049749321,
+    "good": 21.483030635058434,
+    "fades": 14.834085152834943,
+    "roll": 10.957070087299229,
+    "lost": 10.085631420234602
+   },
+   "s": {
+    "all": 0.20099104407834115,
+    "good": 0.34280649469226715,
+    "fades": 0.09618237979924919,
+    "roll": 0.04372655800462493,
+    "lost": 0.01344507903064178
+   },
+   "f": {
+    "flick_static_good": 30.39527130126953,
+    "flick_tdiff_good": 16.817873001098633,
+    "flick_static_all": 46.28752517700195,
+    "flick_tdiff_all": 28.892946243286133
+   }
+  },
+  "naive": {
+   "p": {
+    "all": 23.172525479413437,
+    "good": 24.522078298716828,
+    "fades": 21.599571887644277,
+    "roll": 19.890872466445263,
+    "lost": 18.96545185646748
+   },
+   "s": {
+    "all": 0.790823288707168,
+    "good": 0.8285075099170952,
+    "fades": 0.7444701613215389,
+    "roll": 0.6890620264427659,
+    "lost": 0.5668740925777713
+   },
+   "f": {
+    "flick_static_good": 10.5735445022583,
+    "flick_tdiff_good": 6.798300266265869,
+    "flick_static_all": 10.498713493347168,
+    "flick_tdiff_all": 7.02193021774292
+   }
+  },
+  "bar": {
+   "p": {
+    "all": 25.991623581883363,
+    "good": 27.395756685161768,
+    "fades": 25.050556048995276,
+    "roll": 24.797762383038002,
+    "lost": 21.106735834133932
+   },
+   "s": {
+    "all": 0.8366044202095657,
+    "good": 0.855363265928431,
+    "fades": 0.8182777003889631,
+    "roll": 0.8172123488748909,
+    "lost": 0.6636793684038301
+   },
+   "f": {
+    "flick_static_good": 1.8773078918457031,
+    "flick_tdiff_good": 6.012411117553711,
+    "flick_static_all": 2.6063435077667236,
+    "flick_tdiff_all": 6.0619964599609375
+   }
+  },
+  "ours": {
+   "p": {
+    "all": 28.345778090459014,
+    "good": 30.54060447191154,
+    "fades": 27.042218334187925,
+    "roll": 26.283158313081902,
+    "lost": 21.589589553143874
+   },
+   "s": {
+    "all": 0.8119761244769037,
+    "good": 0.885578687375925,
+    "fades": 0.7271259928918787,
+    "roll": 0.7240345554031709,
+    "lost": 0.7705220361158658
+   },
+   "f": {
+    "flick_static_good": 4.175856590270996,
+    "flick_tdiff_good": 5.844836711883545,
+    "flick_static_all": 5.312220096588135,
+    "flick_tdiff_all": 6.270538330078125
+   },
+   "runtime_s": 51.7
+  },
+  "editportal_classic": {
+   "p": {
+    "all": 21.3254458394512,
+    "good": 24.58358958587384,
+    "fades": 17.912921404881352,
+    "roll": 12.365682561837488,
+    "lost": 7.980193805091538
+   },
+   "s": {
+    "all": 0.6001184626572945,
+    "good": 0.7670682892298335,
+    "fades": 0.41560935614139116,
+    "roll": 0.272723166558971,
+    "lost": 0.011047587361210007
+   },
+   "f": {
+    "flick_static_good": 26.83074188232422,
+    "flick_tdiff_good": 10.885940551757812,
+    "flick_static_all": 31.426651000976562,
+    "flick_tdiff_all": 15.732081413269043
+   },
+   "runtime_s": null
+  }
+ }
+}

@@ -1,0 +1,47 @@
+{
+ "n_clips": 8,
+ "source": "cockatoo windows 0..210 stride 30, seed 7, local run, champion cfg + loo+masks",
+ "caveat": "single content source; thresholds are status-quo guards (catch invention worse than champion), not perceptual absolutes; LPIPS not gated (no distribution)",
+ "distribution": {
+  "observed": {
+   "min": 0.9137,
+   "median": 0.9304,
+   "max": 0.9385
+  },
+  "warped": {
+   "min": 0.0282,
+   "median": 0.0362,
+   "max": 0.053
+  },
+  "interp_frames": {
+   "min": 2.0,
+   "median": 2.0,
+   "max": 2.0
+  },
+  "loo_p95_max": {
+   "min": 34.7711,
+   "median": 50.2761,
+   "max": 100.7517
+  },
+  "hf_retention": {
+   "min": 0.8288,
+   "median": 0.8485,
+   "max": 0.8644
+  }
+ },
+ "gate": {
+  "observed_floor": 0.8937,
+  "interp_ceiling": 2,
+  "loo_p95_max_ceiling": 120.9,
+  "hf_band": [
+   0.7488,
+   1.02
+  ],
+  "rationale": {
+   "observed_floor": "dist_min - 0.02: candidate may not observe less of the signal than champion ever does",
+   "interp_ceiling": "max(2, dist_max): champion legitimately interpolates <=2 fade frames",
+   "loo_p95_max_ceiling": "dist_max * 1.2: fills leaning on single observations beyond champion's worst window",
+   "hf_band": "[dist_min - 0.08, 1.02]: below = detail destruction; above 1.0 = more HF than clean on untouched pixels = invention"
+  }
+ }
+}
