@@ -125,3 +125,56 @@ python3 sim.py  ->  python3 iterate.py --seed  ->  python3 tune_baselines.py
 
 Requires: Python 3, numpy, opencv-python, scikit-image, imageio, ffmpeg, z-ai CLI for the judge.
 Approx 50 s per 60-frame restore at 480x360 on 2 CPU cores.
+
+## Session 2026-10-27: attribution, prior-art baselines, flicker budget
+
+### Attribution RUN A (Prompt 1) - all numbers measured this session, test clip
+
+| method | PSNR/SSIM all | flick_static_good | source |
+|---|---|---|---|
+| degraded input | 18.43 / 0.214 | - | PRIOR |
+| median3 + NLM | 23.27 / 0.770 | 9.25 | PRIOR |
+| sync-only (diagnostic) | 20.86 / 0.279 | 17.6 | MEASURED |
+| RUN A: sync + med3+NLM | 26.23 / 0.825 | 1.82 | MEASURED |
+| MINE (locked) | 27.73 / 0.778 | 2.67 | PRIOR |
+
+- Sync recovery is worth +2.96 dB to the best baseline (~65% of our +4.5 margin).
+- Stages 2-9 add +1.50 dB on top of sync+baseline. Not a roll corrector alone, but sync
+  is the single biggest lever.
+- RUN A beats MINE on SSIM (0.825 vs 0.778) and static flicker (1.82 vs 2.67, already <2.0).
+- MINE keeps the edge exactly where NLM has no mechanism: lost +3.5 dB, roll +1.2, fades +0.6.
+- Consequence: the fusion engine's case must be argued against sync+strong-NLM, not against
+  the no-sync baseline. Strong-NLM static stability comes with texture loss (tdiff 5.91 vs 5.70).
+
+### Prior-art baselines (both MIT, headless CPU, settings picked on tune clip)
+
+| tool | tune all | test all (one shot) | roll | lost |
+|---|---|---|---|---|
+| flugbild engine (FPV_DVR_CLEANER, rm80 fb70 best) | 21.07 | 21.30 / 0.434 | 12.7 | 9.6 |
+| AnaHD classic CPU | 22.00 | 22.06 / 0.662 | 12.7 | 8.7 |
+
+- Both collapse on roll and lost frames: neither implements sync recovery; their flow fusion
+  actively smears rolled frames (worse than leaving them denoised-but-rolled).
+- Caveats: their target damage (HDZero blocks, chroma streaks on real DVR footage) is not in
+  our sim; outputs pass through their normal encoders (crf14 / crf12); AnaHD output was
+  downscaled from 1440x1080 (it assumes 4:3). Inverse-crime warning applies in both directions.
+
+### Flicker variance budget (Prompt 3; mine_final vs test_clean; 13408 long-static scene px)
+
+- Temporal: <1Hz 41%, 1-5Hz 51%, >5Hz 8%. Grain is solved; the residual is slow drift.
+- Spatial: 93% of residual variance in the lowpass-16px band (slow bias fields, not texture).
+- Events: frames within +-3 of an impairment on/off step carry 2.4x the variance of calm
+  frames (43.3 vs 17.8 gray^2; pair domain 8.5 vs 3.2).
+- Scene-only good-pair metric = 2.34; ~0.33 of the quoted 2.67 is pilot-strip geometry.
+- EFS activation on the real-motion clip: 58/59 pairs pass the static gate, 5 spikes (8.5%).
+  EFS is not dead on ego-motion (sim damage caveat).
+- ONE-fix target: slow low-spatial-frequency drift around impairment events. Band-split
+  temporal stabilizer + per-tile gain/offset tracks with step detection (Hypothesis A),
+  stable-guide fusion (BM3D stage-2 pilot logic) as the structural companion.
+
+### New code and CI
+
+- run_a.py (attribution), run_refs.py (flugbild + AnaHD wrappers; REFS_DIR env), diag_flicker2.py
+  (variance budget + EFS activation). Results: run_a.json, tune_refs.json, refs_scores.json.
+- .github/workflows/eval-suite.yml: rebuilds sim data on the runner, then attribution,
+  refs, and final eval in parallel jobs; artifacts uploaded.
