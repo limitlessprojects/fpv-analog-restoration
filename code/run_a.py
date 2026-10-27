@@ -44,19 +44,23 @@ json.dump(res, open("run_a.json", "w"), indent=1)
 # --- attribution table (prior numbers from final_scores.json, labeled by source)
 try:
     fs = json.load(open("final_scores.json"))
-    prior = {k: fs[k]["p"]["all"] for k in ("degraded input", "median3 + NLM", "MINE (locked)")}
-    ss = {k: fs[k]["s"]["all"] for k in ("degraded input", "median3 + NLM", "MINE (locked)")}
+    keys = ("degraded input", "median3 + NLM", "MINE (locked)")
+    prior = {k: fs[k]["p"]["all"] for k in keys if k in fs}
+    ss = {k: fs[k]["s"]["all"] for k in keys if k in fs}
 except Exception:
     prior, ss = {}, {}
 print("\n--- ATTRIBUTION (test clip, PSNR/SSIM all frames) ---", flush=True)
-rows = [("degraded input", prior.get("degraded input"), ss.get("degraded input"), "PRIOR"),
-        ("median3 + NLM", prior.get("median3 + NLM"), ss.get("median3 + NLM"), "PRIOR"),
-        ("sync_only (new)", res["sync_only"]["p"]["all"], res["sync_only"]["s"]["all"], "MEASURED"),
-        ("runA sync+med3nlm", res["runA_sync_med3nlm"]["p"]["all"], res["runA_sync_med3nlm"]["s"]["all"], "MEASURED"),
-        ("MINE (locked)", prior.get("MINE (locked)"), ss.get("MINE (locked)"), "PRIOR")]
+rows = [("sync_only (new)", res["sync_only"]["p"]["all"], res["sync_only"]["s"]["all"], "MEASURED"),
+        ("runA sync+med3nlm", res["runA_sync_med3nlm"]["p"]["all"], res["runA_sync_med3nlm"]["s"]["all"], "MEASURED")]
+if prior:
+    rows = ([("degraded input", prior["degraded input"], ss["degraded input"], "PRIOR"),
+             ("median3 + NLM", prior["median3 + NLM"], ss["median3 + NLM"], "PRIOR")] + rows +
+            [("MINE (locked)", prior["MINE (locked)"], ss["MINE (locked)"], "PRIOR")])
 for name, p, s, tag in rows:
     print(f"{name:20s} {p:6.2f} / {s:.3f}   [{tag}]", flush=True)
-if prior:
+if "median3 + NLM" in prior and "MINE (locked)" in prior:
     mA = res["runA_sync_med3nlm"]["p"]["all"]
     print(f"\nsync value for the baseline  : {mA - prior['median3 + NLM']:+.2f} dB", flush=True)
     print(f"stages 2-9 over sync+baseline: {prior['MINE (locked)'] - mA:+.2f} dB", flush=True)
+else:
+    print("(prior final_scores.json not present; margins computed locally)", flush=True)

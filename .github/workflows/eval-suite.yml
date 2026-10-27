@@ -71,6 +71,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "numpy>=2,<3" "opencv-python-headless>=4.10,<6" scikit-image
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - uses: actions/download-artifact@v4
         with:
           name: sim-data
