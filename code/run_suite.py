@@ -26,12 +26,13 @@ SEEDS = [7, 11, 23]
 
 def clip_list():
     """23 windows x 3 seeds = 69 paired runs. imageio ships exactly ONE standard video
-    (cockatoo.mp4, 280 frames), so windows are stride-10 slices of it. Known limitation,
-    recorded in the summary: content diversity comes from ONE source; the 3 seeds sample
-    damage randomness, not scene diversity. Adjacent windows share up to 50 frames, which
-    aggregate_suite handles with super-window clustering (and says out loud)."""
+    (cockatoo.mp4, 280 frames - VERIFIED 2026-10-27 by streaming decode), so windows are
+    stride-10 slices of it. Known limitation, recorded in the summary: content diversity
+    comes from ONE source; the 3 seeds sample damage randomness, not scene diversity.
+    Adjacent windows share up to 50 frames, which aggregate_suite handles with super-window
+    clustering (and says out loud)."""
     import imageio.v3 as iio
-    n1 = len(iio.imread("imageio:cockatoo.mp4"))
+    n1 = sum(1 for _ in iio.imiter("imageio:cockatoo.mp4"))  # streams; no big buffer
     starts = [s for s in range(0, n1 - 59, 10)][:23]
     clips = []
     for st in starts:
@@ -39,23 +40,19 @@ def clip_list():
             clips.append((len(clips), "cockatoo", st, seed))
     return clips
 
-_RAW = {}
-def load_src(name):
-    if name not in _RAW:
-        import imageio.v3 as iio
-        _RAW[name] = iio.imread(f"imageio:{name}.mp4")
-    return _RAW[name]
-
 def build_clip(src, start, seed):
-    v = load_src(src)
-    frames = v[start:start + 60]
-    out = []
-    for f in frames:
-        h, w = f.shape[:2]
-        cw = int(h * sim.W / sim.H); x0 = (w - cw) // 2
-        g = cv2.resize(f[:, x0:x0 + cw], (sim.W, sim.H), interpolation=cv2.INTER_AREA)
-        out.append(g)
-    rgb = np.array(out)
+    """Stream-decode ONLY the needed 60-frame window (never hold the full video in RAM:
+    cockatoo at 720p is ~770 MB and OOM-kills small runners)."""
+    import imageio.v3 as iio
+    frames = []
+    for i, f in enumerate(iio.imiter(f"imageio:{src}.mp4")):
+        if i >= start:
+            h, w = f.shape[:2]
+            cw = int(h * sim.W / sim.H); x0 = (w - cw) // 2
+            frames.append(cv2.resize(f[:, x0:x0 + cw], (sim.W, sim.H),
+                                     interpolation=cv2.INTER_AREA))
+            if len(frames) == 60: break
+    rgb = np.array(frames)
     cl = sim.clean_frames(rgb)
     dg, meta = sim.degrade(cl, seed=seed)
     return cl, dg, meta

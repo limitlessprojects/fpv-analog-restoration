@@ -59,7 +59,7 @@ t_start = time.time()
 for ci, (start, seed) in enumerate(CLIPS):
     tag = f"c{ci}_s{start}_k{seed}"
     cl, dg, meta = build_clip(start, seed)
-    tmp = f"{OUTDIR}/in_{tag}.mp4"; run_refs.write_mp4(dg, tmp)
+    tmp = os.path.abspath(f"{OUTDIR}/in_{tag}.mp4"); run_refs.write_mp4(dg, tmp)
     r = {"degraded": full_score(dg, cl, meta)}
     r["naive"] = full_score(naive(dg), cl, meta)
     r["bar"] = full_score(bar(dg), cl, meta)
@@ -70,11 +70,11 @@ for ci, (start, seed) in enumerate(CLIPS):
         grid = {}
         for rm, fb in [(50, 50), (80, 70)]:
             t0 = time.time()
-            x = run_refs.run_flugbild(tmp, f"{OUTDIR}/flug_{rm}_{fb}.mp4", rm, fb)
+            x = run_refs.run_flugbild(tmp, os.path.abspath(f"{OUTDIR}/flug_{rm}_{fb}.mp4"), rm, fb)
             grid[f"flugbild rm{rm} fb{fb}"] = (full_score(x, cl, meta), round(time.time() - t0, 1))
         for nl in (True, False):
             t0 = time.time()
-            x = run_refs.run_anahd(tmp, f"{OUTDIR}/anahd_{int(nl)}.mp4", nl)
+            x = run_refs.run_anahd(tmp, os.path.abspath(f"{OUTDIR}/anahd_{int(nl)}.mp4"), nl)
             grid[f"anahd no_look={nl}"] = (full_score(x, cl, meta), round(time.time() - t0, 1))
         r["tune_grid"] = {k: v[0] for k, v in grid.items()}
         r["tune_grid_runtime"] = {k: v[1] for k, v in grid.items()}
@@ -90,9 +90,9 @@ for ci, (start, seed) in enumerate(CLIPS):
     else:
         choice = json.load(open(f"{OUTDIR}/chroma_choice.json"))
         fb_set = choice["flugbild"]; rm, fb = int(fb_set.split("rm")[1].split()[0]), int(fb_set.split("fb")[1])
-        x = run_refs.run_flugbild(tmp, f"{OUTDIR}/flug_test_{tag}.mp4", rm, fb)
+        x = run_refs.run_flugbild(tmp, os.path.abspath(f"{OUTDIR}/flug_test_{tag}.mp4"), rm, fb)
         r["flugbild"] = full_score(x, cl, meta)
-        x = run_refs.run_anahd(tmp, f"{OUTDIR}/anahd_test_{tag}.mp4", "True" in choice["anahd"])
+        x = run_refs.run_anahd(tmp, os.path.abspath(f"{OUTDIR}/anahd_test_{tag}.mp4"), "True" in choice["anahd"])
         r["anahd"] = full_score(x, cl, meta)
         results[tag] = r
     os.remove(tmp)
