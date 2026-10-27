@@ -18,7 +18,6 @@
   "hf_degraded_all": 15.852
  },
  "lpips": {
-  "lpips": "unavailable",
-  "why": "No module named 'torch'"
+  "lpips_out_vs_clean": 0.3607
  }
 }
