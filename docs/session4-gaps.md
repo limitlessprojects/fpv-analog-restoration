@@ -85,3 +85,69 @@ median family; recorded as a finding, no test-clip scoring (did not survive the 
 - Gap 2: analysis runs the moment the suite artifacts land (aggregate_suite.py output is
   the Gap-2 verdict: paired ours-minus-bar deltas with cluster CIs, win rates, and whether
   the lost/roll/fades edge survives SSIM/flicker parity).
+
+## RESULTS (all measured this session on GitHub Actions runners)
+
+### Gap 3: N expansion (eval-suite-n, 69 paired runs, 23 windows x 3 seeds)
+
+System means: naive 23.32 / 0.791 SSIM / flick_static 9.75; bar 26.32 / 0.840 / 1.76;
+ours 28.00 / 0.808 / 3.78. Ours runtime mean 54.1 s per clip (2-core runner).
+
+Paired ours-minus-bar (cluster bootstrap 95% CI, 4 content clusters, 69 pairs):
+
+| metric            | delta            | win rate |
+|-------------------|------------------|----------|
+| p.all             | +1.69 [+1.27, +2.13] | 23/23 windows |
+| p.good            | +1.84 [+1.27, +2.44] | 23/23 |
+| p.fades           | +1.37 [+0.94, +1.78] | 23/23 |
+| p.roll            | +1.30 [+0.76, +1.84] | 23/23 |
+| p.lost            | +3.37 [+2.98, +3.74] | 23/23 |
+| s.all             | -0.032 [-0.041, -0.020] | 0/23 |
+| s.good            | +0.001 [-0.014, +0.016] | 11/23 (parity) |
+| flick_static_good | +2.02 [+1.20, +2.91] | 0/23 (bar wins) |
+| flick_tdiff_good  | -0.37 [-0.54, -0.20] | 23/23 |
+
+Every point estimate is resolved well beyond the ~0.3 dB single-clip resolution limit.
+Content caveat, stated plainly: one 280-frame source (imageio ships exactly one sample
+video), adjacent windows share up to 50 frames, 4 non-overlapping content clusters. The
+seeds sample damage randomness, not scene diversity. Sync value replicated: bar - naive
++2.99 [+2.81, +3.17] here vs +2.96 on the single test clip.
+
+### Gap 2: bar verdict
+
+The two-stage bar is NOT beaten on its own axes: it wins overall SSIM (-0.032, driven by
+damaged frames; good-frame SSIM is exact parity at +0.001) and static-region flicker
+(1.76 vs 3.78). Ours wins PSNR everywhere INCLUDING good frames (+1.84) and wins
+tdiff flicker (-0.37). So the edge survives as: (a) the largest margin is still lost
+(+3.37), but (b) there is a real good-frame PSNR edge the attribution run underestimated,
+and (c) static flicker parity is NOT reached - the bar remains the static-flicker
+specialist. Under the standing rules the blind A/B on real footage is the arbiter; these
+axes now have honest error bars for that comparison.
+
+### Gap 1: fair chroma test (chroma-fair, 8 clips, tune-clip grid selection)
+
+Settings tuned on clip 0 by CHROMA PSNR (their home metric): flugbild rm50 fb50,
+AnaHD no_look=True. 7 clips scored once. Degraded chroma PSNR 14.87 (chroma is the fight).
+
+| system   | chroma | Y     | chroma flick | hue spread | SSIM |
+|----------|--------|-------|--------------|------------|------|
+| degraded | 14.87  | 25.97 | 25.27        | 77.1       | 0.151|
+| naive    | 16.79  | 25.80 | 3.29         | 61.0       | 0.620|
+| bar      | 16.84  | 25.81 | 3.27         | 60.3       | 0.631|
+| ours     | 17.46  | 26.68 | 5.13         | 58.4       | 0.666|
+| flugbild | 18.00  | 27.46 | 13.09        | 73.6       | 0.359|
+| anahd    | 16.29  | 19.73 | 9.43         | 71.2       | 0.479|
+
+Split verdict, as expected and now measured:
+- flugbild WINS its envelope: chroma PSNR +0.54 mean over ours (clearly better on 4/7
+  clips), best Y (27.46), best saturation ratio. NOT beaten on chroma magnitude fidelity.
+- OURS WINS temporal+structural: chroma flicker 5.13 vs 13.09, hue spread 58 vs 74 deg,
+  SSIM 0.666 vs 0.359 (flugbild's fusion wrecks structure on this damage).
+- AnaHD classic is BELOW naive even on chroma-dominant damage (chroma 16.29 vs 16.79;
+  Y 19.73 is catastrophic at 480x360 - its upscale+sharpen path is destructive here).
+- naive and bar are tied on chroma: sync recovery adds nothing when there is no sync
+  damage (sanity check passes).
+
+Caveats: competitor outputs pass through their own encoders (crf 10-14) vs our
+pre-encoder evaluation; the slow hue drift is unfixable by every system (shared
+handicap); N=7 scored clips for the competitors.
